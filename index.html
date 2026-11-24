@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Shelf</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<meta name="theme-color" content="#c2410c">
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--text:#1d1b18;--mute:#6f6a62;--line:#e2ded5;--accent:#c2410c;--accent-t:#fff;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#171513;--card:#211e1b;--text:#f2eee7;--mute:#a19a8e;--line:#363029;--accent:#f97316;--accent-t:#1d1b18;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:760px;margin:0 auto;padding:16px}
+h1{font-size:1.5rem;margin:4px 0}
+.sub{color:var(--mute);font-size:.85rem;margin-bottom:12px}
+input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
+button{cursor:pointer;border:1px solid var(--line);background:var(--card);padding:9px 14px;border-radius:10px;white-space:nowrap}
+button.primary{background:var(--accent);color:var(--accent-t);border-color:var(--accent);font-weight:600}
+.bar{display:flex;gap:8px;margin-bottom:10px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;margin-bottom:8px}
+.chip{padding:6px 12px;border-radius:999px;font-size:.85rem}
+.chip.on{background:var(--accent);color:var(--accent-t);border-color:var(--accent)}
+.list{display:grid;gap:8px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;display:flex;gap:10px;align-items:flex-start}
+.item .main{flex:1;min-width:0}
+.t{font-weight:600;overflow-wrap:anywhere}
+.m{color:var(--mute);font-size:.85rem}
+.tag{font-size:.7rem;background:var(--line);padding:2px 8px;border-radius:999px;margin-right:6px}
+.acts button{padding:5px 9px;font-size:.8rem;margin-left:4px}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--text);width:min(92vw,440px);padding:16px}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+label{display:block;font-size:.8rem;color:var(--mute);margin:10px 0 4px}
+.row{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+.empty{text-align:center;color:var(--mute);padding:36px 0}
+#vid{width:100%;max-height:50vh;object-fit:cover;border-radius:10px;background:#000}
+</style>
+</head>
+<body>
+<main>
+  <h1>📀 Shelf</h1>
+  <div class="sub" id="status">Loading…</div>
+  <div class="bar">
+    <input id="q" type="search" placeholder="Search title, creator, notes, barcode…">
+    <button id="scan">📷 Scan</button>
+    <button class="primary" id="add">+ Add</button>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div class="m" id="count" style="margin-bottom:8px"></div>
+  <div class="list" id="list"></div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="f" style="margin:0">
+    <h2 id="dt" style="margin:0 0 4px;font-size:1.15rem">Add item</h2>
+    <label for="bc">Barcode</label>
+    <div style="display:flex;gap:8px"><input id="bc" inputmode="numeric" placeholder="Scan or type"><button type="button" id="bcscan" title="Scan">📷</button><button type="button" id="bclook" title="Look up details">🔍</button></div>
+    <div class="m" id="lk" style="margin-top:4px"></div>
+    <label for="ti">Title</label><input id="ti" required>
+    <label for="ty">Format</label><select id="ty"></select>
+    <label for="cr">Creator / Platform</label><input id="cr" placeholder="Director, artist, author, console…">
+    <label for="yr">Year</label><input id="yr" type="number" inputmode="numeric" min="1800" max="2100">
+    <label for="no">Notes</label><textarea id="no" rows="2" placeholder="Edition, condition, loaned to…"></textarea>
+    <div class="row"><button type="button" id="cancel">Cancel</button><button class="primary" type="submit">Save</button></div>
+  </form>
+</dialog>
+
+<dialog id="sdlg">
+  <h2 style="margin:0 0 8px;font-size:1.15rem">Scan barcode</h2>
+  <video id="vid" playsinline muted></video>
+  <div class="m" id="smsg" style="margin-top:8px"></div>
+  <div class="row"><button type="button" id="scancel">Cancel</button></div>
+</dialog>
+
+<dialog id="cdlg">
+  <form method="dialog" id="cf" style="margin:0">
+    <h2 style="margin:0 0 4px;font-size:1.15rem">Access code</h2>
+    <div class="m">Enter the shared code once on this device.</div>
+    <input id="cin" type="password" autocomplete="off" required style="margin-top:10px">
+    <div class="row"><button class="primary" type="submit">Continue</button></div>
+  </form>
+</dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<script>
+const API_URL="https://script.google.com/macros/s/AKfycbwxMXhE2hLiM2o94RSqM2LIk_YkPbVRwP4DY16q-uZUbqcKhcQUL6-jnrOdhr0V7DOthQ/exec";
+const TYPES=["Blu-ray","4K UHD","DVD","CD","Vinyl","Game","Book","Other"];
+const $=id=>document.getElementById(id);
+const LS={get(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
+let items=LS.get("items",[]),pending=LS.get("pending",{}),code=LS.get("code",""),filter="All",editing=null,pendingCode="",busy=false;
+const status=t=>$("status").textContent=t;
+const persist=()=>{LS.set("items",items);LS.set("pending",pending)};
+
+async function api(action,extra){
+  const r=await fetch(API_URL,{method:"POST",body:JSON.stringify({code,action,...extra})});
+  const j=await r.json();
+  if(!j.ok){if(j.error==="bad_code"){code="";LS.set("code","");askCode()}throw new Error(j.error)}
+  return j;
+}
+
+async function sync(){
+  if(busy||!code||API_URL.includes("PASTE_"))return;
+  busy=true;status("Syncing…");
+  try{
+    for(const id of Object.keys(pending)){
+      if(pending[id]==="del")await api("delete",{id});
+      else{const it=items.find(x=>x.id===id);if(it)await api("save",{item:it})}
+      delete pending[id];persist();
+    }
+    const j=await api("list");
+    if(!Object.keys(pending).length){items=j.items;persist();render()}
+    status("Synced "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}));
+  }catch(e){status("Couldn’t reach the sheet – changes will retry")}
+  busy=false;
+  if(Object.keys(pending).length)setTimeout(sync,3000);
+}
+function put(it){const i=items.findIndex(x=>x.id===it.id);if(i<0)items.push(it);else items[i]=it;pending[it.id]="save";persist();render();sync()}
+function remove(id){items=items.filter(x=>x.id!==id);pending[id]="del";persist();render();sync()}
+
+function render(){
+  const q=$("q").value.trim().toLowerCase();
+  if(filter!=="All"&&!items.some(i=>i.type===filter))filter="All";
+  const chips=["All",...TYPES.filter(t=>items.some(i=>i.type===t))];
+  $("chips").innerHTML="";
+  chips.forEach(c=>{const b=document.createElement("button");b.className="chip"+(c===filter?" on":"");
+    b.textContent=(c==="All"?"All":c)+" ("+(c==="All"?items.length:items.filter(i=>i.type===c).length)+")";
+    b.onclick=()=>{filter=c;render()};$("chips").appendChild(b)});
+  const shown=items.filter(i=>(filter==="All"||i.type===filter)&&(!q||[i.title,i.creator,i.notes,i.barcode].join(" ").toLowerCase().includes(q)))
+    .sort((a,b)=>a.title.localeCompare(b.title));
+  $("count").textContent=shown.length+" shown";
+  const L=$("list");L.innerHTML="";
+  if(!shown.length){const d=document.createElement("div");d.className="empty";d.textContent=items.length?"Nothing matches.":"Your shelf is empty. Tap + Add or 📷 Scan to start.";L.appendChild(d);return}
+  shown.forEach(i=>{
+    const el=document.createElement("div");el.className="item";
+    const m=document.createElement("div");m.className="main";
+    const t=document.createElement("div");t.className="t";t.textContent=i.title;
+    const meta=document.createElement("div");meta.className="m";
+    const tag=document.createElement("span");tag.className="tag";tag.textContent=i.type;
+    meta.append(tag,[i.creator,i.year,i.barcode].filter(Boolean).join(" · "));
+    m.append(t,meta);
+    if(i.notes){const n=document.createElement("div");n.className="m";n.textContent=i.notes;m.appendChild(n)}
+    const a=document.createElement("div");a.className="acts";
+    const e=document.createElement("button");e.textContent="Edit";e.onclick=()=>openDlg(i);
+    const d=document.createElement("button");d.textContent="✕";d.title="Delete";d.onclick=()=>{if(confirm("Delete “"+i.title+"”?"))remove(i.id)};
+    a.append(e,d);el.append(m,a);L.appendChild(el);
+  });
+}
+
+function openDlg(i){
+  editing=i||null;
+  $("dt").textContent=i?"Edit item":"Add item";
+  $("ti").value=i?i.title:"";$("ty").value=i?i.type:(filter!=="All"?filter:TYPES[0]);
+  $("cr").value=i?i.creator||"":"";$("yr").value=i?i.year||"":"";$("no").value=i?i.notes||"":"";
+  $("bc").value=i?i.barcode||"":pendingCode;pendingCode="";$("lk").textContent="";
+  $("dlg").showModal();
+}
+async function lookup(){
+  const b=$("bc").value.replace(/\D/g,"");if(!b)return;
+  $("lk").textContent="Looking up…";
+  try{
+    const f=(await api("lookup",{barcode:b})).found;
+    if(!f){$("lk").textContent="Nothing found – fill in the details manually";return}
+    if(!$("ti").value)$("ti").value=f.title;
+    if(!$("cr").value)$("cr").value=f.creator;
+    if(!$("yr").value)$("yr").value=f.year;
+    $("ty").value=f.type;
+    $("lk").textContent="Details filled in – please check them";
+  }catch(e){$("lk").textContent="Lookup failed – fill in manually"}
+}
+
+$("ty").innerHTML=TYPES.map(t=>"<option>"+t+"</option>").join("");
+$("add").onclick=()=>openDlg(null);
+$("cancel").onclick=()=>$("dlg").close();
+$("bclook").onclick=lookup;
+$("q").oninput=render;
+$("f").onsubmit=()=>{
+  const v={title:$("ti").value.trim(),type:$("ty").value,creator:$("cr").value.trim(),year:$("yr").value,notes:$("no").value.trim(),barcode:$("bc").value.trim()};
+  if(!v.title)return;
+  put(editing?{...editing,...v}:{id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),...v});
+};
+
+// Barcode scanning
+let stream=null,scanning=false,cb=null;
+function stopScan(){scanning=false;if(stream)stream.getTracks().forEach(t=>t.stop());stream=null}
+function done(c){stopScan();$("sdlg").close();cb&&cb(c)}
+async function startScan(fn){
+  cb=fn;$("sdlg").showModal();$("smsg").textContent="Starting camera…";
+  try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}})}
+  catch(e){$("smsg").textContent="Camera unavailable. Check permissions, or type the barcode instead.";return}
+  const v=$("vid");v.srcObject=stream;try{await v.play()}catch(e){}
+  scanning=true;$("smsg").textContent="Point the camera at the barcode";
+  if("BarcodeDetector" in window){
+    const det=new BarcodeDetector({formats:["ean_13","ean_8","upc_a","upc_e","code_128"]});
+    const loop=async()=>{if(!scanning)return;try{const r=await det.detect(v);if(r.length)return done(r[0].rawValue)}catch(e){}setTimeout(loop,200)};loop();
+  }else if(window.ZXing){
+    const Z=ZXing,reader=new Z.MultiFormatReader(),c=document.createElement("canvas"),x=c.getContext("2d",{willReadFrequently:true});
+    reader.setHints(new Map([[Z.DecodeHintType.POSSIBLE_FORMATS,[Z.BarcodeFormat.EAN_13,Z.BarcodeFormat.EAN_8,Z.BarcodeFormat.UPC_A,Z.BarcodeFormat.UPC_E,Z.BarcodeFormat.CODE_128]],[Z.DecodeHintType.TRY_HARDER,true]]));
+    const loop=()=>{if(!scanning)return;if(v.videoWidth){c.width=v.videoWidth;c.height=v.videoHeight;x.drawImage(v,0,0);
+      try{const r=reader.decode(new Z.BinaryBitmap(new Z.HybridBinarizer(new Z.HTMLCanvasElementLuminanceSource(c))));return done(r.getText())}catch(e){}}
+      setTimeout(loop,250)};loop();
+  }else $("smsg").textContent="Scanning isn’t supported here. Type the barcode instead.";
+}
+$("sdlg").addEventListener("close",stopScan);
+$("scancel").onclick=()=>$("sdlg").close();
+$("bcscan").onclick=()=>startScan(c=>{$("bc").value=c;lookup()});
+$("scan").onclick=()=>startScan(c=>{
+  if(items.some(i=>i.barcode===c)){filter="All";$("q").value=c;render();status("You already have this one ✓")}
+  else{pendingCode=c;openDlg(null);lookup()}
+});
+
+// Access code + start-up
+function askCode(){$("cin").value="";if(!$("cdlg").open)$("cdlg").showModal()}
+$("cf").onsubmit=()=>{code=$("cin").value.trim();LS.set("code",code);sync()};
+render();
+if(API_URL.includes("PASTE_"))status("Setup needed: add your web app URL to index.html");
+else if(!code)askCode();
+else sync();
+setInterval(()=>{if(!document.hidden)sync()},15000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)sync()});
+</script>
+</body>
+</html>
