@@ -85,7 +85,7 @@ label{display:block;font-size:.8rem;color:var(--mute);margin:10px 0 4px}
 
 <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
 <script>
-const API_URL="https://script.google.com/macros/s/AKfycbwxMXhE2hLiM2o94RSqM2LIk_YkPbVRwP4DY16q-uZUbqcKhcQUL6-jnrOdhr0V7DOthQ/exec";
+const API_URL="https://script.google.com/macros/library/d/1Mpeqc6sUa4midxI9g0MfSDlaTAuhsgRQgYNO4bPoF2ruLo-Qb4cWfJyN/3";
 const TYPES=["Blu-ray","4K UHD","DVD","CD","Vinyl","Game","Book","Other"];
 const $=id=>document.getElementById(id);
 const LS={get(k,d){try{const v=JSON.parse(localStorage.getItem(k));return v==null?d:v}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}}};
@@ -157,12 +157,29 @@ function openDlg(i){
   syncType();if(i&&i.type==="Game")setPlatform(i.creator);else setPlatform("");
   $("dlg").showModal();
 }
+async function upcDirect(b){
+  const r=await fetch("https://api.upcitemdb.com/prod/trial/lookup?upc="+b);
+  if(r.status===429)throw new Error("limit");
+  if(!r.ok)throw new Error("http");
+  const p=((await r.json()).items||[])[0];
+  if(!p)return null;
+  const t=p.title||"",cat=p.category||"";
+  const type=/4k|uhd/i.test(t)?"4K UHD":/blu-?ray/i.test(t)?"Blu-ray":/dvd/i.test(t)?"DVD":/video game/i.test(cat)?"Game":/book/i.test(cat)?"Book":"Other";
+  return {title:t.replace(/\s*[\[\(][^\]\)]*(blu-?ray|dvd|4k|uhd|widescreen|digital)[^\]\)]*[\]\)]/gi,"").replace(/\s+/g," ").trim(),creator:p.brand||"",year:"",type};
+}
 async function lookup(){
   const b=$("bc").value.replace(/\D/g,"");if(!b)return;
   $("lk").textContent="Looking up…";
   try{
-    const f=(await api("lookup",{barcode:b})).found;
-    if(!f){$("lk").textContent="Nothing found – fill in the details manually";return}
+    let f=(await api("lookup",{barcode:b,skipUpc:true})).found;
+    if(!f){
+      try{f=await upcDirect(b)}
+      catch(e){
+        if(e.message==="limit"){$("lk").textContent="Lookup limit reached for now – fill in manually or try later";return}
+        f=(await api("lookup",{barcode:b})).found;
+      }
+    }
+    if(!f){$("lk").textContent=(b.length<12?"That’s only "+b.length+" digits – check for a missing last digit. ":"")+"Nothing found – fill in the details manually";return}
     if(!$("ti").value)$("ti").value=f.title;
     if(f.type!=="Game"&&!$("cr").value)$("cr").value=f.creator;
     if(!$("yr").value)$("yr").value=f.year;
